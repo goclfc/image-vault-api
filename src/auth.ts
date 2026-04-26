@@ -16,8 +16,10 @@ export function requireAuth(req: AuthedRequest, res: Response, next: NextFunctio
     return res.status(401).json({ error: "missing token" });
   }
   try {
-    const payload = jwt.verify(header.slice(7), JWT_SECRET) as { sub: number };
-    req.userId = payload.sub;
+    const payload = jwt.verify(header.slice(7), JWT_SECRET) as jwt.JwtPayload;
+    const sub = Number(payload.sub);
+    if (!Number.isFinite(sub)) return res.status(401).json({ error: "invalid token" });
+    req.userId = sub;
     next();
   } catch {
     return res.status(401).json({ error: "invalid token" });
