@@ -6,13 +6,9 @@ import { pool } from "./db";
 import { requireAuth, AuthedRequest } from "./auth";
 
 const s3 = new S3Client({
-  region: process.env.S3_REGION || "us-east-1",
-  endpoint: process.env.S3_ENDPOINT,
-  forcePathStyle: !!process.env.S3_ENDPOINT,
-  credentials: {
-    accessKeyId: process.env.S3_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || "",
-  },
+  region: process.env.S3_REGION || process.env.AWS_DEFAULT_REGION || "us-east-1",
+  endpoint: process.env.S3_ENDPOINT || process.env.AWS_ENDPOINT_URL,
+  forcePathStyle: !!(process.env.S3_ENDPOINT || process.env.AWS_ENDPOINT_URL),
 });
 
 const BUCKET = process.env.S3_BUCKET || "";
@@ -77,10 +73,3 @@ uploadsRouter.get("/", requireAuth, async (req: AuthedRequest, res) => {
   }
 });
 
-uploadsRouter.get("/_debug/envkeys", (_req, res) => {
-  const keys = Object.keys(process.env)
-    .filter((k) => !/SECRET|KEY|PASS|TOKEN/i.test(k) || /^(S3_|AWS_|DB_|DATABASE_|MINIO_|POSTGRES_|PG)/.test(k))
-    .filter((k) => /^(S3_|AWS_|DB_|DATABASE_|MINIO_|POSTGRES_|PG|BUCKET|REGION|ENDPOINT|HOST|PORT|USER|NODE_)/.test(k))
-    .sort();
-  res.json({ keys });
-});
