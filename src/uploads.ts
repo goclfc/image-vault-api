@@ -21,17 +21,23 @@ const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/we
 export const uploadsRouter = Router();
 
 uploadsRouter.post("/presign", requireAuth, async (req: AuthedRequest, res: Response) => {
-  const { contentType } = req.body ?? {};
-  if (typeof contentType !== "string" || !ALLOWED_TYPES.has(contentType)) {
-    return res.status(400).json({ error: "unsupported content-type" });
+  try {
+    const { contentType } = req.body ?? {};
+    if (typeof contentType !== "string" || !ALLOWED_TYPES.has(contentType)) {
+      return res.status(400).json({ error: "unsupported content-type" });
+    }
+    if (!BUCKET) return res.status(500).json({ error: "S3_BUCKET env not set" });
+    const key = `users/${req.userId}/${randomUUID()}`;
+    const url = await getSignedUrl(
+      s3,
+      new PutObjectCommand({ Bucket: BUCKET, Key: key, ContentType: contentType }),
+      { expiresIn: 300 }
+    );
+    res.json({ uploadUrl: url, key });
+  } catch (e: any) {
+    console.error("presign failed", e);
+    res.status(500).json({ error: e.message || "presign failed" });
   }
-  const key = `users/${req.userId}/${randomUUID()}`;
-  const url = await getSignedUrl(
-    s3,
-    new PutObjectCommand({ Bucket: BUCKET, Key: key, ContentType: contentType }),
-    { expiresIn: 300 }
-  );
-  res.json({ uploadUrl: url, key });
 });
 
 uploadsRouter.post("/confirm", requireAuth, async (req: AuthedRequest, res) => {
@@ -50,18 +56,31 @@ uploadsRouter.post("/confirm", requireAuth, async (req: AuthedRequest, res) => {
 });
 
 uploadsRouter.get("/", requireAuth, async (req: AuthedRequest, res) => {
-  const { rows } = await pool.query(
-    "SELECT id, key, content_type, created_at FROM images WHERE user_id = $1 ORDER BY created_at DESC",
-    [req.userId]
-  );
-  const images = await Promise.all(
-    rows.map(async (r) => ({
-      id: r.id,
-      createdAt: r.created_at,
-      url: await getSignedUrl(s3, new GetObjectCommand({ Bucket: BUCKET, Key: r.key }), {
-        expiresIn: 3600,
-      }),
-    }))
-  );
-  res.json({ images });
+  try {
+    const { rows } = await pool.query(
+      "SELECT id, key, content_type, created_at FROM images WHERE user_id = $1 ORDER BY created_at DESC",
+      [req.userId]
+    );
+    const images = await Promise.all(
+      rows.map(async (r) => ({
+        id: r.id,
+        createdAt: r.created_at,
+        url: await getSignedUrl(s3, new GetObjectCommand({ Bucket: BUCKET, Key: r.key }), {
+          expiresIn: 3600,
+        }),
+      }))
+    );
+    res.json({ images });
+  } catch (e: any) {
+    console.error("list failed", e);
+    res.status(500).json({ error: e.message || "list failed" });
+  }
+});
+
+uploadsRouter.get("/_debug/envkeys", (_req, res) => {
+  const keys = Object.keys(process.env)
+    .filter((k) => !/SECRET|KEY|PASS|TOKEN/i.test(k) || /^(S3_|AWS_|DB_|DATABASE_|MINIO_|POSTGRES_|PG)/.test(k))
+    .filter((k) => /^(S3_|AWS_|DB_|DATABASE_|MINIO_|POSTGRES_|PG|BUCKET|REGION|ENDPOINT|HOST|PORT|USER|NODE_)/.test(k))
+    .sort();
+  res.json({ keys });
 });
